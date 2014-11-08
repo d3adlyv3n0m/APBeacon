@@ -1,0 +1,98 @@
+#!/bin/bash
+#
+# sndBeacons
+#
+# script to wrap the mdk3 command to send essid beacon frames
+# into the ether
+#
+# d3adlyv3n0m
+#
+##############################################################
+
+# function to shutdown and cleanup in case ctrl-c is sent to
+# the script
+alldone()
+{       
+    echo "[!] Initiating shutdown and cleanup."
+    kill $beacon_pid >/dev/null 2>&1
+    kill $tcpdump_pid >/dev/null 2>&1
+    rm -f $tmpfile
+    if [ $iface ]; then
+        airmon-ng stop $iface >/dev/null 2>&1
+        ifconfig $mface down 2>/dev/null
+        ifconfig $iface up 2>/dev/null
+    fi
+    echo "[!] Shutdown complete."
+    exit 0
+}
+
+# set trap for ctrl-c
+trap alldone 2
+
+# banner function
+banner()
+{
+    clear
+    bfile="beacon_banner.txt"
+    if [ -e $bfile ]; then
+        cat $bfile
+        echo -e "--=== Created by \u262f d3adlyv3n0m \u262f ===--"
+        echo
+        sleep 2
+    fi
+}
+
+# prompt for the essid name to use
+banner
+read -p "[*] Enter an ESSID name: " essid
+
+# prompt for the interface to use
+read -p "[*] Enter wireless interface to use: " iface
+
+# put the given interface into monitor mode
+echo "[+] Putting $iface into monitor mode."
+airmon-ng start $iface >/dev/null 2>&1
+
+# get the monitor interface
+mface=$(ifconfig | awk '/mon/{print $1;exit}')
+
+# create a temp file to hold the mac address and essid name
+echo "[+] Creating temporary file."
+tmpfile=$(mktemp -p /tmp -t ${0##*/}.XXXXXX)
+sleep 1
+
+# generate a randam mac address
+echo "[+] Generating a random MAC address."
+macaddr=$(openssl rand -hex 5 | sed 's|\(..\)|\1:|g; s|.$||' | sed 's|^|00:|g')
+sleep 1
+
+# populate the temp file
+echo "[+] Adding MAC address and ESSID to temporary file."
+echo "$macaddr $essid" > $tmpfile
+sleep 1
+
+# start sending the beacons
+echo "[+] Sending beacons."
+sleep 2
+xterm -geometry 120x15-1+0 -T "SENDING BEACONS FOR ESSID: $essid" -e mdk3 $mface b -v $tmpfile -g -t -m -c 11 -s 3 & beacon_pid=$!
+
+# display shutdown prompt
+while true;do
+    read -p "[*] Enter 'q' to stop sending beacons: " response
+    response=${response,,}
+    if [ $response == 'q' ]; then
+        echo "[!] Initiating shutdown and cleanup."
+        kill $beacon_pid >/dev/null 2>&1
+        rm -f $tmpfile
+        airmon-ng stop $iface >/dev/null 2>&1
+        ifconfig $mface down 2>/dev/null
+        ifconfig $iface up 2>/dev/null
+        echo "[!] Shutdown complete."
+        break 
+    else
+        echo "[!] Invalid option."
+    fi
+done
+
+# done
+exit 0
